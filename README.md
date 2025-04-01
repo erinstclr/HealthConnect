@@ -1,0 +1,1 @@
+Uploading the sql files to MySQL will develop a patient healthcare database with information already in it. To add simply edit the code with the INSERT and VALUES under which entities you want to add.
