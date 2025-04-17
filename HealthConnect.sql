@@ -44,3 +44,79 @@ CREATE TABLE WellnessCenter (
     StaffedMentalHealthCounselors BOOLEAN,
     FOREIGN KEY (CenterID) REFERENCES HealthcareCenter(CenterID) ON DELETE CASCADE
 );
+
+CREATE TABLE HealthcareProvider (
+    EmployeeID INT PRIMARY KEY,
+    Availability VARCHAR(50),
+    Salary DECIMAL(10,2),
+    Qualifications TEXT,
+    AssociatedFacilities TEXT,
+    Address VARCHAR(255),
+    City VARCHAR(100),
+    State VARCHAR(50),
+    ZipCode VARCHAR(10),
+    FirstName VARCHAR(100),
+    LastName VARCHAR(100),
+    PhoneNumber VARCHAR(20)
+);
+
+CREATE TABLE Doctor (
+    EmployeeID INT PRIMARY KEY,
+    MedicalLicenseNumber VARCHAR(50) UNIQUE NOT NULL,
+    SurgicalAuthority BOOLEAN,
+    PrescriptionAuthority BOOLEAN,
+    YearsOfResidency INT,
+    Specialization VARCHAR(100),
+    FOREIGN KEY (EmployeeID) REFERENCES HealthcareProvider(EmployeeID) ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Nurse (
+    EmployeeID INT PRIMARY KEY,
+    Department VARCHAR(100),
+    PatientCareResponsibilities TEXT,
+    SupervisingPhysician VARCHAR(100),
+    ShiftSchedule VARCHAR(100),
+    NursingCertification TEXT,
+    NursingLicenseNumber VARCHAR(50) UNIQUE NOT NULL,
+    FOREIGN KEY (EmployeeID) REFERENCES HealthcareProvider(EmployeeID) ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Invoice (
+    InvoiceID INT PRIMARY KEY,
+    InvoiceDate DATETIME,
+    Amount DECIMAL(10,2),
+    PatientID INT,
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Payments (
+    PaymentID INT PRIMARY KEY,
+    PaymentDate DATETIME,
+    Amount DECIMAL(10,2),
+    PatientID INT,
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Patient (
+    PatientID INT PRIMARY KEY,
+    FirstName VARCHAR(100),
+    LastName VARCHAR(100),
+    PhoneNumber VARCHAR(20),
+    ZipCode VARCHAR(10),
+    City VARCHAR(100),
+    State VARCHAR(50),
+    InsuranceProvider VARCHAR(100),
+    Prescriptions TEXT,
+    PreviousAppointments TEXT,
+    PaymentAmounts TEXT,
+    AmountOwed AS (
+        (SELECT COALESCE(SUM(InvoiceAmount), 0) FROM Invoice WHERE Invoice.PatientID = Patient.PatientID) -
+        (SELECT COALESCE(SUM(PaymentAmount), 0) FROM Payments WHERE Payments.PatientID = Patient.PatientID)
+    ) PERSISTED,
+    Name AS (FirstName + ' ' + LastName) PERSISTED,
+    Address AS (City + ', ' + State + ' ' + ZipCode) PERSISTED
+);
