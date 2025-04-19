@@ -120,3 +120,58 @@ CREATE TABLE Patient (
     Name AS (FirstName + ' ' + LastName) PERSISTED,
     Address AS (City + ', ' + State + ' ' + ZipCode) PERSISTED
 );
+
+CREATE TABLE Appointment (
+    AppointmentID INT PRIMARY KEY,
+    AppointmentDate DATETIME,
+    ReviewRating DECIMAL(3,2),
+    FollowUpAppointments TEXT,
+    IsTelehealthConsultation BOOLEAN,
+    ReviewComments TEXT,
+    PatientID INT,
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE CommunityEvent (
+    EventID INT PRIMARY KEY,
+    EventName VARCHAR(255),
+    EventType VARCHAR(100),
+    EventDateTime DATETIME,
+    Location VARCHAR(255)
+);
+
+CREATE TABLE Attends (
+    PatientID INT,
+    EventID INT,
+    PRIMARY KEY (PatientID, EventID),
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE,
+    FOREIGN KEY (EventID) REFERENCES CommunityEvent(EventID) ON DELETE CASCADE
+);
+
+CREATE TABLE RegularMember (
+    PatientID INT PRIMARY KEY,
+    SubscriptionID VARCHAR(50) NOT NULL,
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
+);
+
+CREATE TABLE PremiumMember (
+    PatientID INT PRIMARY KEY,
+    SubscriptionID VARCHAR(50) NOT NULL,
+    ProgramsAttended TEXT,
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
+);
+
+ALTER TABLE RegularMember
+ADD CONSTRAINT CK_RegularMember_Disjoint CHECK (
+    PatientID NOT IN (
+        SELECT PatientID FROM PremiumMember
+    )
+);
+
+ALTER TABLE PremiumMember
+ADD CONSTRAINT CK_PremiumMember_Disjoint CHECK (
+    PatientID NOT IN (
+        SELECT PatientID FROM RegularMember
+    )
+);
