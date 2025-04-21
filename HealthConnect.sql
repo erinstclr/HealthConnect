@@ -1,4 +1,7 @@
-CREATE TABLE HealthcareCenter (
+USE HealthConnect;
+
+
+CREATE TABLE IF NOT EXISTS HealthcareCenter (
     CenterID INT PRIMARY KEY,
     PhoneNumber VARCHAR(20),
     OperatingHours VARCHAR(100),
@@ -14,27 +17,31 @@ CREATE TABLE HealthcareCenter (
     PatientEngagementStatistics TEXT
 );
 
-CREATE TABLE Hospital (
+CREATE TABLE IF NOT EXISTS
+ Hospital (
     CenterID INT PRIMARY KEY,
     InpatientBeds INT,
     FOREIGN KEY (CenterID) REFERENCES HealthcareCenter(CenterID) ON DELETE CASCADE
 );
 
-CREATE TABLE Clinic (
+CREATE TABLE IF NOT EXISTS
+ Clinic (
     CenterID INT PRIMARY KEY,
     DaysPerWeek INT,
     WalkIn BOOLEAN,
     FOREIGN KEY (CenterID) REFERENCES HealthcareCenter(CenterID) ON DELETE CASCADE
 );
 
-CREATE TABLE EmergencyCenter (
+CREATE TABLE IF NOT EXISTS
+ EmergencyCenter (
     CenterID INT PRIMARY KEY,
     ResponseTime INT,
     Availability BOOLEAN,
     FOREIGN KEY (CenterID) REFERENCES HealthcareCenter(CenterID) ON DELETE CASCADE
 );
 
-CREATE TABLE WellnessCenter (
+CREATE TABLE IF NOT EXISTS
+ WellnessCenter (
     CenterID INT PRIMARY KEY,
     StaffedDieticians BOOLEAN,
     PatientProgramParticipation TEXT,
@@ -45,7 +52,8 @@ CREATE TABLE WellnessCenter (
     FOREIGN KEY (CenterID) REFERENCES HealthcareCenter(CenterID) ON DELETE CASCADE
 );
 
-CREATE TABLE HealthcareProvider (
+CREATE TABLE IF NOT EXISTS
+ HealthcareProvider (
     EmployeeID INT PRIMARY KEY,
     Availability VARCHAR(50),
     Salary DECIMAL(10,2),
@@ -60,7 +68,8 @@ CREATE TABLE HealthcareProvider (
     PhoneNumber VARCHAR(20)
 );
 
-CREATE TABLE Doctor (
+CREATE TABLE IF NOT EXISTS
+ Doctor (
     EmployeeID INT PRIMARY KEY,
     MedicalLicenseNumber VARCHAR(50) UNIQUE NOT NULL,
     SurgicalAuthority BOOLEAN,
@@ -68,10 +77,10 @@ CREATE TABLE Doctor (
     YearsOfResidency INT,
     Specialization VARCHAR(100),
     FOREIGN KEY (EmployeeID) REFERENCES HealthcareProvider(EmployeeID) ON DELETE CASCADE
-        ON UPDATE CASCADE
 );
 
-CREATE TABLE Nurse (
+CREATE TABLE IF NOT EXISTS
+ Nurse (
     EmployeeID INT PRIMARY KEY,
     Department VARCHAR(100),
     PatientCareResponsibilities TEXT,
@@ -83,25 +92,16 @@ CREATE TABLE Nurse (
         ON UPDATE CASCADE
 );
 
-CREATE TABLE Invoice (
+CREATE TABLE IF NOT EXISTS
+ Invoice (
     InvoiceID INT PRIMARY KEY,
     InvoiceDate DATETIME,
     Amount DECIMAL(10,2),
-    PatientID INT,
-    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
-        ON UPDATE CASCADE
+    PatientID INT
 );
 
-CREATE TABLE Payments (
-    PaymentID INT PRIMARY KEY,
-    PaymentDate DATETIME,
-    Amount DECIMAL(10,2),
-    PatientID INT,
-    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
-        ON UPDATE CASCADE
-);
-
-CREATE TABLE Patient (
+CREATE TABLE IF NOT EXISTS
+ Patient (
     PatientID INT PRIMARY KEY,
     FirstName VARCHAR(100),
     LastName VARCHAR(100),
@@ -113,27 +113,57 @@ CREATE TABLE Patient (
     Prescriptions TEXT,
     PreviousAppointments TEXT,
     PaymentAmounts TEXT,
-    AmountOwed AS (
-        (SELECT COALESCE(SUM(InvoiceAmount), 0) FROM Invoice WHERE Invoice.PatientID = Patient.PatientID) -
-        (SELECT COALESCE(SUM(PaymentAmount), 0) FROM Payments WHERE Payments.PatientID = Patient.PatientID)
-    ) PERSISTED,
-    Name AS (FirstName + ' ' + LastName) PERSISTED,
-    Address AS (City + ', ' + State + ' ' + ZipCode) PERSISTED
+    AmountOwed DECIMAL(10,2),
+    Name VARCHAR(201) AS (CONCAT(FirstName, ' ', LastName)) STORED,
+    Address VARCHAR(161) AS (CONCAT(City, ', ', State, ' ', ZipCode)) STORED
 );
 
-CREATE TABLE Appointment (
-    AppointmentID INT PRIMARY KEY,
-    AppointmentDate DATETIME,
-    ReviewRating DECIMAL(3,2),
-    FollowUpAppointments TEXT,
-    IsTelehealthConsultation BOOLEAN,
-    ReviewComments TEXT,
+ALTER TABLE Invoice
+ADD CONSTRAINT FK_Invoice_Patient FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE IF NOT EXISTS
+ Payments (
+    PaymentID INT PRIMARY KEY,
+    PaymentDate DATETIME,
+    Amount DECIMAL(10,2),
     PatientID INT,
-    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
-        ON UPDATE CASCADE
+    FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE CommunityEvent (
+--This makes the compiler interpret '$$' as the end of a statement instead of a semicolon
+DELIMITER $$
+
+CREATE TRIGGER UpdateAmountOwedAfterInvoiceInsert
+AFTER INSERT ON Invoice
+FOR EACH ROW
+BEGIN
+    UPDATE Patient
+    SET AmountOwed = (
+        (SELECT IFNULL(SUM(Amount), 0) FROM Invoice WHERE Invoice.PatientID = NEW.PatientID) -
+        (SELECT IFNULL(SUM(Amount), 0) FROM Payments WHERE Payments.PatientID = NEW.PatientID)
+    )
+    WHERE PatientID = NEW.PatientID;
+
+END$$
+
+CREATE TRIGGER UpdateAmountOwedAfterPaymentInsert
+AFTER INSERT ON Payments
+FOR EACH ROW
+BEGIN
+    UPDATE Patient
+    SET AmountOwed = (
+        (SELECT IFNULL(SUM(Amount), 0) FROM Invoice WHERE Invoice.PatientID = NEW.PatientID) -
+        (SELECT IFNULL(SUM(Amount), 0) FROM Payments WHERE Payments.PatientID = NEW.PatientID)
+    )
+    WHERE PatientID = NEW.PatientID;
+END$$
+
+--Sets the delimiter of a statement back to ;
+DELIMITER ;
+
+
+CREATE TABLE IF NOT EXISTS
+ CommunityEvent (
     EventID INT PRIMARY KEY,
     EventName VARCHAR(255),
     EventType VARCHAR(100),
@@ -141,7 +171,8 @@ CREATE TABLE CommunityEvent (
     Location VARCHAR(255)
 );
 
-CREATE TABLE Attends (
+CREATE TABLE IF NOT EXISTS
+ Attends (
     PatientID INT,
     EventID INT,
     PRIMARY KEY (PatientID, EventID),
@@ -149,29 +180,45 @@ CREATE TABLE Attends (
     FOREIGN KEY (EventID) REFERENCES CommunityEvent(EventID) ON DELETE CASCADE
 );
 
-CREATE TABLE RegularMember (
-    PatientID INT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS
+ RegularMember (
+    PatientID INT PRIMARY KEY UNIQUE,
     SubscriptionID VARCHAR(50) NOT NULL,
     FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
 );
 
-CREATE TABLE PremiumMember (
-    PatientID INT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS
+ PremiumMember (
+    PatientID INT PRIMARY KEY UNIQUE,
     SubscriptionID VARCHAR(50) NOT NULL,
     ProgramsAttended TEXT,
     FOREIGN KEY (PatientID) REFERENCES Patient(PatientID) ON DELETE CASCADE
 );
 
-ALTER TABLE RegularMember
-ADD CONSTRAINT CK_RegularMember_Disjoint CHECK (
-    PatientID NOT IN (
-        SELECT PatientID FROM PremiumMember
-    )
-);
+DELIMITER $$
 
-ALTER TABLE PremiumMember
-ADD CONSTRAINT CK_PremiumMember_Disjoint CHECK (
-    PatientID NOT IN (
-        SELECT PatientID FROM RegularMember
-    )
-);
+DELIMITER $$
+
+-- These triggers prevent a patient from being inserted into the RegularMember table
+-- if they are already in the PremiumMember table, and vice versa.
+CREATE TRIGGER PreventRegularMemberInsert
+BEFORE INSERT ON RegularMember
+FOR EACH ROW
+BEGIN
+    IF EXISTS (SELECT 1 FROM PremiumMember WHERE PremiumMember.PatientID = NEW.PatientID) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A patient cannot be both a RegularMember and a PremiumMember.';
+    END IF;
+END$$
+
+CREATE TRIGGER PreventPremiumMemberInsert
+BEFORE INSERT ON PremiumMember
+FOR EACH ROW
+BEGIN
+    IF EXISTS (SELECT 1 FROM RegularMember WHERE RegularMember.PatientID = NEW.PatientID) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A patient cannot be both a PremiumMember and a RegularMember.';
+    END IF;
+END$$
+
+DELIMITER ;
+
+
