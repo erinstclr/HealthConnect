@@ -1,4 +1,4 @@
-CREATE DATABASE HealthConnect;
+Create Schema HealthConnect;
 USE HealthConnect;
 
 
@@ -429,9 +429,12 @@ SELECT
 FROM HealthcareCenter hc
 JOIN Patient p ON p.City = hc.City AND p.State = hc.State
 JOIN Invoice i ON i.PatientID = p.PatientID
+WHERE YEAR(i.InvoiceDate) = YEAR(CURDATE())
 GROUP BY hc.CenterID
 ORDER BY PatientVolume DESC, hc.ServiceRating DESC
 LIMIT 5;
+
+
 
 
 -- Q3 no apptments in the last month, ie Join Where invoiceDate is last month and 
@@ -444,11 +447,21 @@ WHERE i.InvoiceID IS NULL;
 
 
 -- Q4 Wellness program (note that this is eventID) from Dec 1, 2023 - Jan31, 2024
-SELECT DISTINCT p.PatientID, p.FirstName, p.LastName, p.PhoneNumber, p.City, p.State, p.Prescriptions
+SELECT p.PatientID, p.FirstName, p.LastName
 FROM Patient p
-LEFT JOIN Attends a ON p.PatientID = a.PatientID
-LEFT JOIN CommunityEvent ce ON a.EventID = ce.EventID
-WHERE ce.EventDateTime BETWEEN '2023-12-01' AND '2024-01-31';
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM WellnessCenter wc
+    JOIN HealthcareCenter hc ON hc.CenterID = wc.CenterID
+    WHERE hc.City = p.City
+    AND NOT EXISTS (
+        SELECT 1
+        FROM Attends a
+        JOIN CommunityEvent ce ON a.EventID = ce.EventID
+        WHERE a.PatientID = p.PatientID
+        AND ce.Location = hc.Address
+    )
+);
 
 
 -- Q5 most health entries regardless of member
@@ -486,13 +499,22 @@ WHERE i.InvoiceDate >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR);
 
 
 -- Q8 erm Idk if this is right. Kind of need more data to make sure.
-SELECT p.PatientID, p.FirstName, p.LastName, pm.ProgramsAttended
+SELECT p.PatientID, p.FirstName, p.LastName
 FROM Patient p
-JOIN PremiumMember pm ON p.PatientID = pm.PatientID
-WHERE LENGTH(pm.ProgramsAttended) - LENGTH(REPLACE(pm.ProgramsAttended, ',', '')) + 1 = (
-    SELECT MAX(LENGTH(PatientProgramParticipation) - LENGTH(REPLACE(PatientProgramParticipation, ',', '')) + 1)
-    FROM WellnessCenter
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM WellnessCenter wc
+    JOIN HealthcareCenter hc ON hc.CenterID = wc.CenterID
+    WHERE hc.City = p.City
+    AND NOT EXISTS (
+        SELECT 1
+        FROM Attends a
+        JOIN CommunityEvent ce ON a.EventID = ce.EventID
+        WHERE a.PatientID = p.PatientID
+        AND ce.Location = hc.Address
+    )
 );
+
 
 
 -- Q9, sum billed, sum covered by insurance. Group by patient, ez
@@ -504,29 +526,53 @@ SELECT
     IFNULL(SUM(i.Amount), 0) AS TotalBilled,
     IFNULL(SUM(pay.Amount), 0) AS CoveredByInsurance
 FROM Patient p
-LEFT JOIN Invoice i ON i.PatientID = p.PatientID
-LEFT JOIN Payments pay ON pay.PatientID = p.PatientID
+LEFT JOIN Invoice i ON i.PatientID = p.PatientID AND i.InvoiceDate >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+LEFT JOIN Payments pay ON pay.PatientID = p.PatientID AND pay.PaymentDate >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
 GROUP BY p.PatientID;
 
 
+
 -- Q10, Goat center, find the center who treated the most patients
+-- Most Appointments
 SELECT hp.EmployeeID, hp.FirstName, hp.LastName, hp.PhoneNumber
 FROM HealthcareProvider hp
-JOIN Invoice i ON FIND_IN_SET((SELECT hc.CenterID FROM HealthcareCenter hc WHERE hc.City = hp.City LIMIT 1), hp.AssociatedFacilities)
-GROUP BY hp.EmployeeID
-ORDER BY COUNT(i.InvoiceID) DESC
+JOIN (
+    SELECT 
+        hp2.EmployeeID,
+        COUNT(i.InvoiceID) AS AppointmentCount
+    FROM HealthcareProvider hp2
+    LEFT JOIN Invoice i ON FIND_IN_SET((SELECT hc.CenterID FROM HealthcareCenter hc WHERE hc.City = hp2.City LIMIT 1), hp2.AssociatedFacilities)
+    GROUP BY hp2.EmployeeID
+) sub ON hp.EmployeeID = sub.EmployeeID
+ORDER BY sub.AppointmentCount DESC
 LIMIT 1;
+
+-- Most Unique Patients
+SELECT hp.EmployeeID, hp.FirstName, hp.LastName, hp.PhoneNumber
+FROM HealthcareProvider hp
+JOIN (
+    SELECT 
+        hp2.EmployeeID,
+        COUNT(DISTINCT i.PatientID) AS UniquePatients
+    FROM HealthcareProvider hp2
+    LEFT JOIN Invoice i ON FIND_IN_SET((SELECT hc.CenterID FROM HealthcareCenter hc WHERE hc.City = hp2.City LIMIT 1), hp2.AssociatedFacilities)
+    GROUP BY hp2.EmployeeID
+) sub ON hp.EmployeeID = sub.EmployeeID
+ORDER BY sub.UniquePatients DESC
+LIMIT 1;
+
 
 
 -- Q11, easy, just find avg ratings where count > 5.
 SELECT 
-    hc.AreasOfSpecialty,
+    d.Specialization,
     AVG(hc.ServiceRating) AS AvgRating,
     COUNT(*) AS NumCenters
-FROM HealthcareCenter hc
-GROUP BY hc.AreasOfSpecialty
+FROM Doctor d
+JOIN HealthcareProvider hp ON d.EmployeeID = hp.EmployeeID
+JOIN HealthcareCenter hc ON FIND_IN_SET(hc.CenterID, hp.AssociatedFacilities)
+GROUP BY d.Specialization
 HAVING COUNT(*) > 5;
-
 
 
 
@@ -547,22 +593,20 @@ WHERE hc.ServiceRating BETWEEN 4.5 AND 5.0
 
 
 -- Q13, note that I tried using Rank but that no work in this version :(
-SELECT 
-    wc.CenterID,
-    hc.City,
-    wc.PatientsEnrolled
+SELECT wc.CenterID, hc.City, wc.PatientsEnrolled
 FROM WellnessCenter wc
-JOIN HealthcareCenter hc ON hc.CenterID = wc.CenterID
+JOIN HealthcareCenter hc ON wc.CenterID = hc.CenterID
 WHERE hc.State = 'Texas'
 AND (
-    SELECT COUNT(*) 
+    SELECT COUNT(*)
     FROM WellnessCenter wc2
-    JOIN HealthcareCenter hc2 ON hc2.CenterID = wc2.CenterID
-    WHERE hc2.City = hc.City 
-      AND hc2.State = 'Texas' 
+    JOIN HealthcareCenter hc2 ON wc2.CenterID = hc2.CenterID
+    WHERE hc2.City = hc.City
+      AND hc2.State = 'Texas'
       AND wc2.PatientsEnrolled > wc.PatientsEnrolled
 ) < 3
 ORDER BY hc.City, wc.PatientsEnrolled DESC;
+
 
 
 
